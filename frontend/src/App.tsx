@@ -320,6 +320,7 @@ function ChatScreen({
   setUserTurnCount,
   showNudge,
   setShowNudge,
+  docContext,
 }: {
   messages: Message[];
   setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
@@ -327,6 +328,7 @@ function ChatScreen({
   setUserTurnCount: React.Dispatch<React.SetStateAction<number>>;
   showNudge: boolean;
   setShowNudge: React.Dispatch<React.SetStateAction<boolean>>;
+  docContext: string;
 }) {
   const [draft, setDraft] = useState("");
   const [typing, setTyping] = useState(false);
@@ -356,10 +358,12 @@ function ChatScreen({
     setDraft("");
     setTyping(true);
     try {
+      const body: Record<string, string> = { question: value };
+      if (docContext) body.docContext = docContext;
       const res = await fetch(`${API_BASE}/ask`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: value }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       const reply = data.answer ?? data.error ?? "I'm not sure — please try again.";
@@ -459,7 +463,19 @@ interface Doc {
   loading?: boolean;
 }
 
-function DocumentsScreen({ docs, setDocs }: { docs: Doc[]; setDocs: React.Dispatch<React.SetStateAction<Doc[]>> }) {
+function DocumentsScreen({
+  docs,
+  setDocs,
+  setMessages,
+  setDocContext,
+  onGoToChat,
+}: {
+  docs: Doc[];
+  setDocs: React.Dispatch<React.SetStateAction<Doc[]>>;
+  setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
+  setDocContext: React.Dispatch<React.SetStateAction<string>>;
+  onGoToChat: () => void;
+}) {
   const [source, setSource] = useState<"you" | "provider">("you");
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -491,6 +507,17 @@ function DocumentsScreen({ docs, setDocs }: { docs: Doc[]; setDocs: React.Dispat
       const explanation = await uploadDoc(file);
       const id = additions[i].id;
       setDocs((d) => d.map((doc) => doc.id === id ? { ...doc, loading: false, explanation } : doc));
+      if (explanation) {
+        setDocContext(explanation);
+        setMessages((m) => [
+          ...m,
+          {
+            role: "agent",
+            text: `I've read your document "${file.name}". Here's a summary:\n\n${explanation}\n\nFeel free to ask me any questions about it.`,
+          },
+        ]);
+        onGoToChat();
+      }
     }
   }
 
@@ -574,10 +601,7 @@ function SummaryScreen({ messages, userTurnCount }: { messages: Message[]; userT
       .finally(() => setLoading(false));
   }, [userTurnCount]);
 
-  const questions = [
-    ...(data?.questions ?? []),
-    ...(data?.bring_to_doctor ?? []),
-  ];
+  const questions = data?.questions ?? [];
 
   if (userMessages.length < 2) {
     return (
@@ -722,6 +746,7 @@ export default function App() {
   const [userTurnCount, setUserTurnCount] = useState(0);
   const [showNudge, setShowNudge] = useState(false);
   const [docs, setDocs] = useState<Doc[]>([]);
+  const [docContext, setDocContext] = useState<string>("");
 
   return (
     <>
@@ -1470,9 +1495,18 @@ body {
                 setUserTurnCount={setUserTurnCount}
                 showNudge={showNudge}
                 setShowNudge={setShowNudge}
+                docContext={docContext}
               />
             )}
-            {tab === "documents" && <DocumentsScreen docs={docs} setDocs={setDocs} />}
+            {tab === "documents" && (
+              <DocumentsScreen
+                docs={docs}
+                setDocs={setDocs}
+                setMessages={setMessages}
+                setDocContext={setDocContext}
+                onGoToChat={() => setTab("chat")}
+              />
+            )}
             {tab === "summary" && <SummaryScreen messages={messages} userTurnCount={userTurnCount} />}
             {tab === "profile" && <ProfileScreen lang={lang} setLang={setLang} />}
           </>
