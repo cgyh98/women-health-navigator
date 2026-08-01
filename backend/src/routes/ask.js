@@ -1,7 +1,8 @@
 import { Router } from "express";
 import { matchTopics } from "../kb/match.js";
 import { callCerebras } from "../llm/cerebrasClient.js";
-import { QA_SYSTEM_PROMPT } from "../prompts/qaPrompt.js";
+import { searchTavily } from "../llm/tavilyClient.js";
+import { QA_SYSTEM_PROMPT, QA_RAG_SYSTEM_PROMPT, buildRagUserMessage } from "../prompts/qaPrompt.js";
 import { stripFences } from "../lib/stripFences.js";
 
 export const askRouter = Router();
@@ -17,8 +18,8 @@ askRouter.post("/", async (req, res) => {
     return res.status(400).json({ error: "Missing required field: question" });
   }
 
+  // Tier 1: KB — instant, deterministic, no credits
   const matches = matchTopics(question);
-
   if (matches.length > 0) {
     return res.json({
       source: "kb",
@@ -30,19 +31,30 @@ askRouter.post("/", async (req, res) => {
 
   const apiKey = process.env.CEREBRAS_API_KEY;
   const model = process.env.CEREBRAS_MODEL || "gemma-4-31b";
+  const tavilyKey = process.env.TAVILY_API_KEY;
 
   if (!apiKey) {
     return res.status(500).json({ error: "CEREBRAS_API_KEY not configured" });
   }
 
+  // Tier 2: Tavily RAG — search authoritative medical sources (1 credit per call)
+  let tavilyResults = [];
+  if (tavilyKey) {
+    try {
+      tavilyResults = await searchTavily({ query: question, apiKey: tavilyKey });
+    } catch {
+      // Tavily failure is non-fatal — fall through to pure model
+    }
+  }
+
+  const useRag = tavilyResults.length > 0;
+  const systemPrompt = useRag ? QA_RAG_SYSTEM_PROMPT : QA_SYSTEM_PROMPT;
+  const userMessage = useRag ? buildRagUserMessage(question, tavilyResults) : question;
+
+  // Tier 3: Gemma 4 — synthesize from sources (RAG) or generate directly (fallback)
   let raw;
   try {
-    raw = await callCerebras({
-      system: QA_SYSTEM_PROMPT,
-      user: question,
-      apiKey,
-      model,
-    });
+    raw = await callCerebras({ system: systemPrompt, user: userMessage, apiKey, model });
   } catch (err) {
     return res.status(502).json({ error: "Cerebras API failure", detail: err.message });
   }
@@ -55,9 +67,10 @@ askRouter.post("/", async (req, res) => {
   }
 
   res.json({
-    source: "model",
+    source: useRag ? "rag" : "model",
     topic: null,
     answer: parsed.answer ?? "",
+    sources: useRag ? (parsed.sources ?? tavilyResults.map((r) => r.url)) : [],
     disclaimer: DISCLAIMER,
   });
 });
