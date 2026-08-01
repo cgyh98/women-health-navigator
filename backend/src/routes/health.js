@@ -3,16 +3,21 @@ import { Router } from "express";
 export const healthRouter = Router();
 
 healthRouter.get("/", async (_req, res) => {
-  const ollamaUrl = process.env.OLLAMA_URL || "http://localhost:11434";
-  const model = process.env.GEMMA_MODEL || "gemma2:2b";
+  const model = process.env.CEREBRAS_MODEL || "gemma-4-31b";
+  const apiKey = process.env.CEREBRAS_API_KEY;
 
-  let ollamaStatus = "unreachable";
-  try {
-    const r = await fetch(`${ollamaUrl}/api/tags`, { signal: AbortSignal.timeout(3000) });
-    if (r.ok) ollamaStatus = "reachable";
-  } catch {
-    // unreachable
+  let cerebrasStatus = "unconfigured";
+  if (apiKey) {
+    try {
+      const r = await fetch("https://api.cerebras.ai/v1/models", {
+        headers: { Authorization: `Bearer ${apiKey}` },
+        signal: AbortSignal.timeout(5000),
+      });
+      cerebrasStatus = r.ok ? "reachable" : "error";
+    } catch {
+      cerebrasStatus = "unreachable";
+    }
   }
 
-  res.json({ ok: true, ollama: ollamaStatus, model });
+  res.json({ ok: true, cerebras: cerebrasStatus, model });
 });

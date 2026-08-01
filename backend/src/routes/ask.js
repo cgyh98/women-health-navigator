@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { matchTopics } from "../kb/match.js";
-import { callGemma } from "../llm/ollamaClient.js";
+import { callCerebras } from "../llm/cerebrasClient.js";
 import { QA_SYSTEM_PROMPT } from "../prompts/qaPrompt.js";
 import { stripFences } from "../lib/stripFences.js";
 
@@ -28,19 +28,23 @@ askRouter.post("/", async (req, res) => {
     });
   }
 
-  const ollamaUrl = process.env.OLLAMA_URL || "http://localhost:11434";
-  const model = process.env.GEMMA_MODEL || "gemma2:2b";
+  const apiKey = process.env.CEREBRAS_API_KEY;
+  const model = process.env.CEREBRAS_MODEL || "gemma-4-31b";
+
+  if (!apiKey) {
+    return res.status(500).json({ error: "CEREBRAS_API_KEY not configured" });
+  }
 
   let raw;
   try {
-    raw = await callGemma({
+    raw = await callCerebras({
       system: QA_SYSTEM_PROMPT,
       user: question,
-      ollamaUrl,
+      apiKey,
       model,
     });
   } catch (err) {
-    return res.status(502).json({ error: "Model or Ollama failure", detail: err.message });
+    return res.status(502).json({ error: "Cerebras API failure", detail: err.message });
   }
 
   let parsed;

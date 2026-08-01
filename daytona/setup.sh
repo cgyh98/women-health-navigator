@@ -1,34 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-GEMMA_MODEL="${GEMMA_MODEL:-gemma2:2b}"
 PORT="${PORT:-8787}"
 
 echo "=== Women's Health Navigator — Daytona Sandbox Setup ==="
 
-# Install Ollama if not present
-if ! command -v ollama &>/dev/null; then
-  echo "Installing Ollama..."
-  curl -fsSL https://ollama.com/install.sh | sh
-fi
-
-# Install Node.js 20 if not present
-if ! command -v node &>/dev/null || [[ "$(node -e 'process.stdout.write(process.versions.node.split(".")[0])')" -lt 20 ]]; then
-  echo "Installing Node.js 20..."
-  curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-  apt-get install -y nodejs
-fi
-
-# Start Ollama server in background
-if ! pgrep -x "ollama" &>/dev/null; then
-  echo "Starting Ollama..."
-  ollama serve &>/tmp/ollama.log &
-  sleep 5
-fi
-
-# Pull model
-echo "Pulling model: ${GEMMA_MODEL}..."
-ollama pull "${GEMMA_MODEL}"
+# Node.js is pre-installed in the Daytona sandbox
+echo "Node.js: $(node --version)"
 
 # Install backend dependencies
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -36,16 +14,23 @@ BACKEND_DIR="${SCRIPT_DIR}/../backend"
 
 echo "Installing backend dependencies..."
 cd "${BACKEND_DIR}"
-npm install
+npm install --omit=dev
 
-# Write .env if it doesn't exist
+# Write .env from example if not present (CEREBRAS_API_KEY injected via env var)
 if [[ ! -f .env ]]; then
   cp .env.example .env
 fi
 
+# Patch PORT in .env
+sed -i "s/^PORT=.*/PORT=${PORT}/" .env
+
 # Start backend in background
 echo "Starting backend on port ${PORT}..."
-PORT="${PORT}" npm start &>/tmp/backend.log &
+PORT="${PORT}" \
+CEREBRAS_API_KEY="${CEREBRAS_API_KEY:-}" \
+CEREBRAS_MODEL="${CEREBRAS_MODEL:-gemma-4-31b}" \
+npm start &>/tmp/backend.log &
+
 sleep 3
 
 # Health check
@@ -61,8 +46,5 @@ for i in {1..10}; do
 done
 
 echo "ERROR: Backend did not become healthy in time."
-echo "Ollama log:"
-cat /tmp/ollama.log || true
-echo "Backend log:"
 cat /tmp/backend.log || true
 exit 1
