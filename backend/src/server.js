@@ -3,6 +3,8 @@ import cors from "cors";
 import { explainRouter } from "./routes/explain.js";
 import { uploadRouter } from "./routes/upload.js";
 import { askRouter } from "./routes/ask.js";
+import { symptomsRouter } from "./routes/symptoms.js";
+import { doctorQuestionsRouter } from "./routes/doctorQuestions.js";
 import { healthRouter } from "./routes/health.js";
 
 const app = express();
@@ -21,6 +23,8 @@ app.get("/", (_req, res) => {
       "POST /api/explain": "explain a healthcare document (JSON text)",
       "POST /api/explain/upload": "explain a healthcare document (PDF upload)",
       "POST /api/ask": "answer a women's health question",
+      "POST /api/symptoms": "structure symptoms into a doctor-ready summary",
+      "POST /api/doctor-questions": "generate questions to ask at an appointment",
     },
   });
 });
@@ -28,6 +32,8 @@ app.get("/", (_req, res) => {
 app.use("/api/explain", explainRouter);
 app.use("/api/explain/upload", uploadRouter);
 app.use("/api/ask", askRouter);
+app.use("/api/symptoms", symptomsRouter);
+app.use("/api/doctor-questions", doctorQuestionsRouter);
 app.use("/api/health", healthRouter);
 
 app.listen(PORT, () => {
