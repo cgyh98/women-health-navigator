@@ -459,7 +459,10 @@ interface Doc {
   source: "you" | "provider";
   pages: number;
   date: string;
-  explanation?: string;
+  summary?: string;
+  next_steps?: string[];
+  questions?: string[];
+  red_flags?: string[];
   loading?: boolean;
 }
 
@@ -479,13 +482,20 @@ function DocumentsScreen({
   const [source, setSource] = useState<"you" | "provider">("you");
   const fileRef = useRef<HTMLInputElement>(null);
 
-  async function uploadDoc(file: File): Promise<string | undefined> {
+  interface DocResult {
+    summary?: string;
+    next_steps?: string[];
+    questions?: string[];
+    red_flags?: string[];
+    error?: string;
+  }
+
+  async function uploadDoc(file: File): Promise<DocResult | undefined> {
     const form = new FormData();
     form.append("file", file);
     try {
       const res = await fetch(`${API_BASE}/explain/upload`, { method: "POST", body: form });
-      const data = await res.json();
-      return data.explanation ?? data.error;
+      return await res.json();
     } catch {
       return undefined;
     }
@@ -504,16 +514,34 @@ function DocumentsScreen({
     }));
     setDocs((d) => [...additions, ...d]);
     for (const [i, file] of files.entries()) {
-      const explanation = await uploadDoc(file);
+      const result = await uploadDoc(file);
       const id = additions[i].id;
-      setDocs((d) => d.map((doc) => doc.id === id ? { ...doc, loading: false, explanation } : doc));
-      if (explanation) {
-        setDocContext(explanation);
+      setDocs((d) =>
+        d.map((doc) =>
+          doc.id === id
+            ? {
+                ...doc,
+                loading: false,
+                summary: result?.summary,
+                next_steps: result?.next_steps,
+                questions: result?.questions,
+                red_flags: result?.red_flags,
+              }
+            : doc
+        )
+      );
+      if (result?.summary) {
+        const parts = [result.summary];
+        if (result.next_steps?.length) parts.push("Next steps:\n" + result.next_steps.map((s) => `• ${s}`).join("\n"));
+        if (result.questions?.length) parts.push("Questions to ask your doctor:\n" + result.questions.map((q) => `• ${q}`).join("\n"));
+        if (result.red_flags?.length) parts.push("⚠️ Seek care if:\n" + result.red_flags.map((f) => `• ${f}`).join("\n"));
+        const fullText = parts.join("\n\n");
+        setDocContext(fullText);
         setMessages((m) => [
           ...m,
           {
             role: "agent",
-            text: `I've read your document "${file.name}". Here's a summary:\n\n${explanation}\n\nFeel free to ask me any questions about it.`,
+            text: `I've read your document "${file.name}".\n\n${fullText}\n\nFeel free to ask me any questions about it.`,
           },
         ]);
         onGoToChat();
@@ -556,8 +584,24 @@ function DocumentsScreen({
                 </div>
               </div>
               {d.loading && <p style={{ fontSize: "0.8rem", color: "var(--ink-faint)", margin: 0 }}>Analyzing document…</p>}
-              {d.explanation && !d.loading && (
-                <p style={{ fontSize: "0.82rem", color: "var(--ink-soft)", margin: 0, lineHeight: 1.5 }}>{d.explanation}</p>
+              {d.summary && !d.loading && (
+                <p style={{ fontSize: "0.82rem", color: "var(--ink-soft)", margin: 0, lineHeight: 1.5 }}>{d.summary}</p>
+              )}
+              {!d.loading && (d.next_steps?.length ?? 0) > 0 && (
+                <div style={{ fontSize: "0.78rem", color: "var(--ink-soft)" }}>
+                  <strong>Next steps:</strong>
+                  <ul style={{ margin: "4px 0 0", paddingLeft: 16 }}>
+                    {d.next_steps!.map((s, i) => <li key={i}>{s}</li>)}
+                  </ul>
+                </div>
+              )}
+              {!d.loading && (d.red_flags?.length ?? 0) > 0 && (
+                <div style={{ fontSize: "0.78rem", color: "var(--coral)" }}>
+                  <strong>⚠️ Seek care if:</strong>
+                  <ul style={{ margin: "4px 0 0", paddingLeft: 16 }}>
+                    {d.red_flags!.map((f, i) => <li key={i}>{f}</li>)}
+                  </ul>
+                </div>
               )}
             </div>
           ))}
