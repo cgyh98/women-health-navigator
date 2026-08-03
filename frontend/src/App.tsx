@@ -358,7 +358,13 @@ function ChatScreen({
     setDraft("");
     setTyping(true);
     try {
-      const body: Record<string, string> = { question: value };
+      // Build history from prior messages (skip the opening greeting, keep last 10 turns)
+      const history = messages
+        .filter((m) => m.text !== openingMessage)
+        .slice(-10)
+        .map((m) => ({ role: m.role === "agent" ? "assistant" : "user", content: m.text }));
+
+      const body: Record<string, unknown> = { question: value, history };
       if (docContext) body.docContext = docContext;
       const res = await fetch(`${API_BASE}/ask`, {
         method: "POST",

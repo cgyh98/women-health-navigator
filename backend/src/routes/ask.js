@@ -12,7 +12,11 @@ const DISCLAIMER =
   "Talk to a healthcare professional for personal advice.";
 
 askRouter.post("/", async (req, res) => {
-  const { question, docContext } = req.body;
+  const { question, docContext, history } = req.body;
+  // history: [{ role: "user"|"assistant", content: string }]
+  const safeHistory = Array.isArray(history)
+    ? history.slice(-10).filter((m) => m.role && m.content) // last 10 turns, sanitised
+    : [];
 
   if (!question || typeof question !== "string" || question.trim().length === 0) {
     return res.status(400).json({ error: "Missing required field: question" });
@@ -29,6 +33,7 @@ askRouter.post("/", async (req, res) => {
       raw = await callCerebras({
         system: QA_DOC_SYSTEM_PROMPT,
         user: `Document:\n${docContext}\n\nQuestion: ${question}`,
+        history: safeHistory,
         apiKey,
         model,
       });
@@ -64,10 +69,15 @@ askRouter.post("/", async (req, res) => {
   }
 
   // Tier 2: Tavily RAG — search authoritative medical sources (1 credit per call)
+  // For follow-up questions with history, prefix with prior context so Tavily
+  // can resolve pronouns like "it", "this", "what you just told me"
+  const lastUserTurn = safeHistory.filter((m) => m.role === "user").slice(-1)[0]?.content ?? "";
+  const searchQuery = lastUserTurn ? `${lastUserTurn} — ${question}` : question;
+
   let tavilyResults = [];
   if (tavilyKey) {
     try {
-      tavilyResults = await searchTavily({ query: question, apiKey: tavilyKey });
+      tavilyResults = await searchTavily({ query: searchQuery, apiKey: tavilyKey });
     } catch {
       // Tavily failure is non-fatal — fall through to pure model
     }
@@ -80,7 +90,7 @@ askRouter.post("/", async (req, res) => {
   // Tier 3: Gemma 4 — synthesize from sources (RAG) or generate directly (fallback)
   let raw;
   try {
-    raw = await callCerebras({ system: systemPrompt, user: userMessage, apiKey, model });
+    raw = await callCerebras({ system: systemPrompt, user: userMessage, history: safeHistory, apiKey, model });
   } catch (err) {
     return res.status(502).json({ error: "Cerebras API failure", detail: err.message });
   }
