@@ -419,7 +419,7 @@ function ChatScreen({
         )}
       </div>
 
-      {messages.length <= 1 && (
+      {messages.length <= 1 && !typing && (
         <div className="quick-replies">
           {STARTER_PROMPTS.map((p) => (
             <button key={p} className="quick-chip" onClick={() => send(p)} type="button">
@@ -433,17 +433,18 @@ function ChatScreen({
         <input
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && send(draft)}
-          placeholder="Type how you're feeling…"
+          onKeyDown={(e) => e.key === "Enter" && !typing && send(draft)}
+          placeholder={typing ? "Nest is thinking…" : "Type how you're feeling…"}
+          disabled={typing}
         />
-        <button className="icon-btn" type="button" aria-label="Voice input">
+        <button className="icon-btn" type="button" aria-label="Voice input" disabled={typing}>
           <Icon name="mic" />
         </button>
         <button
           className="icon-btn"
           type="button"
           onClick={() => send(draft)}
-          disabled={!draft.trim()}
+          disabled={!draft.trim() || typing}
           aria-label="Send"
         >
           <Icon name="send" />
