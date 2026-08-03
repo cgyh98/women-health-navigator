@@ -321,6 +321,7 @@ function ChatScreen({
   showNudge,
   setShowNudge,
   docContext,
+  lang,
 }: {
   messages: Message[];
   setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
@@ -329,6 +330,7 @@ function ChatScreen({
   showNudge: boolean;
   setShowNudge: React.Dispatch<React.SetStateAction<boolean>>;
   docContext: string;
+  lang: string;
 }) {
   const [draft, setDraft] = useState("");
   const [typing, setTyping] = useState(false);
@@ -364,7 +366,7 @@ function ChatScreen({
         .slice(-10)
         .map((m) => ({ role: m.role === "agent" ? "assistant" : "user", content: m.text }));
 
-      const body: Record<string, unknown> = { question: value, history };
+      const body: Record<string, unknown> = { question: value, history, lang };
       if (docContext) body.docContext = docContext;
       const res = await fetch(`${API_BASE}/ask`, {
         method: "POST",
@@ -479,12 +481,14 @@ function DocumentsScreen({
   setMessages,
   setDocContext,
   onGoToChat,
+  lang,
 }: {
   docs: Doc[];
   setDocs: React.Dispatch<React.SetStateAction<Doc[]>>;
   setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
   setDocContext: React.Dispatch<React.SetStateAction<string>>;
   onGoToChat: () => void;
+  lang: string;
 }) {
   const [source, setSource] = useState<"you" | "provider">("you");
   const fileRef = useRef<HTMLInputElement>(null);
@@ -500,6 +504,7 @@ function DocumentsScreen({
   async function uploadDoc(file: File): Promise<DocResult | undefined> {
     const form = new FormData();
     form.append("file", file);
+    if (lang === "es") form.append("spanish", "true");
     try {
       const res = await fetch(`${API_BASE}/explain/upload`, { method: "POST", body: form });
       return await res.json();
@@ -551,7 +556,7 @@ function DocumentsScreen({
             text: `I've read your document "${file.name}".\n\n${fullText}\n\nFeel free to ask me any questions about it.`,
           },
         ]);
-        onGoToChat();
+        // Stay on Documents tab so user can read the summary — chat is ready when they switch
       }
     }
   }
@@ -609,6 +614,21 @@ function DocumentsScreen({
                     {d.red_flags!.map((f, i) => <li key={i}>{f}</li>)}
                   </ul>
                 </div>
+              )}
+              {!d.loading && d.summary && (
+                <button
+                  type="button"
+                  onClick={onGoToChat}
+                  style={{
+                    alignSelf: "flex-start", marginTop: 4,
+                    background: "var(--lavender)", color: "#fff",
+                    border: "none", borderRadius: "var(--radius-sm)",
+                    padding: "7px 14px", fontSize: "0.78rem", fontWeight: 700,
+                    fontFamily: "var(--sans)", cursor: "pointer",
+                  }}
+                >
+                  Ask questions in chat →
+                </button>
               )}
             </div>
           ))}
@@ -1547,6 +1567,7 @@ body {
                 showNudge={showNudge}
                 setShowNudge={setShowNudge}
                 docContext={docContext}
+                lang={lang}
               />
             )}
             {tab === "documents" && (
@@ -1556,6 +1577,7 @@ body {
                 setMessages={setMessages}
                 setDocContext={setDocContext}
                 onGoToChat={() => setTab("chat")}
+                lang={lang}
               />
             )}
             {tab === "summary" && <SummaryScreen messages={messages} userTurnCount={userTurnCount} />}

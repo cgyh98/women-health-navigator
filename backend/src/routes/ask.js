@@ -12,7 +12,10 @@ const DISCLAIMER =
   "Talk to a healthcare professional for personal advice.";
 
 askRouter.post("/", async (req, res) => {
-  const { question, docContext, history } = req.body;
+  const { question, docContext, history, lang } = req.body;
+  const spanish = lang === "es";
+  const langSuffix = spanish ? " Respond in Spanish." : "";
+
   // history: [{ role: "user"|"assistant", content: string }]
   const safeHistory = Array.isArray(history)
     ? history.slice(-10).filter((m) => m.role && m.content) // last 10 turns, sanitised
@@ -31,7 +34,7 @@ askRouter.post("/", async (req, res) => {
     let raw;
     try {
       raw = await callCerebras({
-        system: QA_DOC_SYSTEM_PROMPT,
+        system: QA_DOC_SYSTEM_PROMPT + langSuffix,
         user: `Document:\n${docContext}\n\nQuestion: ${question}`,
         history: safeHistory,
         apiKey,
@@ -52,12 +55,24 @@ askRouter.post("/", async (req, res) => {
   // Tier 1: KB — instant, deterministic, no credits
   const matches = matchTopics(question);
   if (matches.length > 0) {
-    return res.json({
-      source: "kb",
-      topic: matches[0].id,
-      answer: matches[0].answer,
-      disclaimer: DISCLAIMER,
-    });
+    let answer = matches[0].answer;
+    // Translate through Gemma when Spanish is requested
+    if (spanish) {
+      const apiKey = process.env.CEREBRAS_API_KEY;
+      const model = process.env.CEREBRAS_MODEL || "gemma-4-31b";
+      if (apiKey) {
+        try {
+          const raw = await callCerebras({
+            system: "Translate the following health information to Spanish. Return ONLY the translated text, no JSON, no commentary.",
+            user: answer,
+            apiKey,
+            model,
+          });
+          answer = raw.trim() || answer;
+        } catch { /* fall back to English on error */ }
+      }
+    }
+    return res.json({ source: "kb", topic: matches[0].id, answer, disclaimer: DISCLAIMER });
   }
 
   const apiKey = process.env.CEREBRAS_API_KEY;
@@ -84,7 +99,7 @@ askRouter.post("/", async (req, res) => {
   }
 
   const useRag = tavilyResults.length > 0;
-  const systemPrompt = useRag ? QA_RAG_SYSTEM_PROMPT : QA_SYSTEM_PROMPT;
+  const systemPrompt = (useRag ? QA_RAG_SYSTEM_PROMPT : QA_SYSTEM_PROMPT) + langSuffix;
   const userMessage = useRag ? buildRagUserMessage(question, tavilyResults) : question;
 
   // Tier 3: Gemma 4 — synthesize from sources (RAG) or generate directly (fallback)
